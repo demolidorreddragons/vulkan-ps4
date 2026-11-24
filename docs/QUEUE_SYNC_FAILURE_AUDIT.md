@@ -75,3 +75,13 @@ No additional synchronization code was changed in this follow-up. The repository
 - Each queue is passed to `vk_ps4_QueueWaitIdle`; the first non-`VK_SUCCESS` result is returned immediately.
 - Added a source-contract assertion for iteration, per-queue waiting, and error propagation.
 - This is a source-level correction only. It does not prove the EOP completion mechanism or shared command-buffer storage safe under concurrent QueueSubmit/QueueWaitIdle calls.
+
+
+## Follow-up implementation: reject unsignaled host semaphore waits
+
+- The host/no-GPU fallback previously had an empty `if (!sem->signaled)` branch and then cleared the semaphore state, silently allowing dependent work to continue without satisfying its wait.
+- The fallback now returns `VK_ERROR_DEVICE_LOST` before changing semaphore state when an unsignaled wait has no GPU wait-packet path.
+- Already-signaled host semaphores retain the synchronous CPU fallback behavior.
+- Added a source-contract assertion that the unsignaled check and fail-closed return occur before semaphore consumption.
+- This is not a replacement for proper asynchronous GPU semaphore waits. The Orbis path still needs correct generation consumption, command-buffer lifetime/retirement, and hardware validation.
+- The updated Python source-contract test has not been executed in a runtime.
