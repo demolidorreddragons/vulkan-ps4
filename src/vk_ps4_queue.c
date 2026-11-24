@@ -251,7 +251,11 @@ vk_ps4_QueueWaitIdle(VkQueue queue) {
      * epilogue storage as QueueSubmit and no in-flight storage retirement or
      * cross-queue serialization contract has been established. */
     VkPs4Device *dev = q->device;
-    if (dev && dev->gnm_epilogue_cmd) {
+    if (!dev || !dev->gnm_epilogue_cmd || dev->gnm_epilogue_cmd_dwords < 8) {
+        vk_ps4_log("QueueWaitIdle: no valid epilogue command storage");
+        return VK_ERROR_DEVICE_LOST;
+    }
+    {
         /* The final dword is reserved as the marker label. This avoids a
          * byte-range overlap with the packet, but does not protect the shared
          * command storage from concurrent CPU writers or in-flight GPU reads. */
@@ -271,9 +275,16 @@ vk_ps4_QueueWaitIdle(VkQueue queue) {
             return VK_ERROR_DEVICE_LOST;
         }
         if (result == 0) {
-            /* Poll until the GPU writes the label. */
-            while (*idle_label != 1) {
-                /* spin */
+            /* A broken/missing GPU completion path must not hang the caller
+             * forever. This is a bounded poll budget, not a time guarantee. */
+            const uint32_t max_polls = 1u << 24;
+            uint32_t polls = 0;
+            while (*idle_label != 1 && polls < max_polls) {
+                polls++;
+            }
+            if (*idle_label != 1) {
+                vk_ps4_log("QueueWaitIdle: GPU completion marker not observed");
+                return VK_ERROR_DEVICE_LOST;
             }
         }
 #else
