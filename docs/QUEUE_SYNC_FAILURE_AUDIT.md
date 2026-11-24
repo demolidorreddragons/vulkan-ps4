@@ -157,10 +157,10 @@ This refines the earlier finding: the backend has a DirectMemory primitive for V
 
 A further source-level cross-check found a potentially more fundamental address-space inconsistency in the existing buffer path:
 
-- OpenGNM documents `GnmDirectMemory.mapped` as the CPU-mapped pointer and `GnmDirectMemory.directmemory` as the GPU-side direct-memory address (see the public struct/API reference).
-- `vk_ps4_BindBufferMemory` currently passes `mem->gnm_mem.mapped + offset` to `sceGnmBufSetBaseAddress`, which configures a GPU buffer descriptor.
-- `vk_ps4_GetBufferDeviceAddress`, in contrast, returns `mem->gnm_mem.directmemory + offset`.
-- These two paths therefore use different address fields for what should identify the same bound buffer. Unless the Orbis implementation explicitly guarantees these values are numerically interchangeable (not established by the source/docs reviewed), this is a correctness blocker. The buffer binding path should be reconciled against the documented GPU address semantics before relying on it for compute.
+- OpenGNM's Orbis implementation calls `sceKernelAllocateDirectMemory` to obtain a kernel direct-memory offset, then passes that offset to `sceKernelMapDirectMemory` to obtain `mapped`, a process virtual mapping. It later passes `directmemory` to `sceKernelReleaseDirectMemory`. See `src/helpers.c` in OpenGNM.
+- `vk_ps4_BindBufferMemory` passes `mem->gnm_mem.mapped + offset` to `sceGnmBufSetBaseAddress`; OpenGNM's `sceGnmBufSetBaseAddress` encodes the supplied pointer bits directly into the GNM descriptor.
+- `vk_ps4_GetBufferDeviceAddress` previously returned `mem->gnm_mem.directmemory + offset`, i.e. the kernel allocation offset rather than the mapped pointer used by GNM descriptors. That made the two public paths inconsistent on Orbis (the host fallback masks this because it assigns the same value to both fields).
+- The implementation now returns `mapped + offset`, matching the address passed to GNM buffer descriptors. This is a source-derived correction, not proof of retail firmware 14.02 behavior or a successful GPU access test.
 - `vk_ps4_FlushMappedMemoryRanges` and `vk_ps4_InvalidateMappedMemoryRanges` are unconditional no-ops. Their comments assert Onion coherence / Garlic visibility, but this repository does not provide firmware-14.02 evidence or a hardware readback test establishing those cache guarantees.
 - This is a source audit, not a claim that the mismatch has been reproduced on hardware. No speculative pointer cast or cache operation was added.
 
