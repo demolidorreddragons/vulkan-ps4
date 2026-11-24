@@ -176,7 +176,14 @@ vk_ps4_GetBufferDeviceAddress(VkDevice device, const VkBufferDeviceAddressInfo *
     (void)device;
     if (!pInfo || !pInfo->buffer) return 0;
     VkPs4Buffer *buf = (VkPs4Buffer *)pInfo->buffer;
-    if (!buf->memory) return 0;
-    /* GNM direct memory: directmemory is the GPU-visible address. */
-    return (VkDeviceAddress)(buf->memory->gnm_mem.directmemory + buf->memory_offset);
+    if (!buf->memory || !buf->memory->gnm_mem.mapped) return 0;
+    /*
+     * GNM buffer descriptors are built from gnm_mem.mapped in
+     * vk_ps4_BindBufferMemory. Return that same mapped address here:
+     * on Orbis, directmemory is the kernel allocation offset passed to
+     * sceKernelMapDirectMemory / sceKernelReleaseDirectMemory, not the
+     * process virtual address encoded into GNM descriptors.
+     */
+    return (VkDeviceAddress)((uintptr_t)buf->memory->gnm_mem.mapped +
+                             buf->memory_offset);
 }
