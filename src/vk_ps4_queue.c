@@ -66,6 +66,28 @@ vk_ps4_QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSub
     VkPs4Device *dev = q->device;
     vk_ps4_log("QueueSubmit: count=%u family=%u", submitCount, q->family_index);
 
+    /* Timeline semaphore queue operations are not implemented by this backend.
+     * Validate every submit before issuing any GPU work so a later unsupported
+     * semaphore cannot leave an earlier submit partially executed. */
+    if (submitCount && !pSubmits) return VK_ERROR_INITIALIZATION_FAILED;
+    for (uint32_t i = 0; i < submitCount; i++) {
+        const VkSubmitInfo *submit = &pSubmits[i];
+        for (uint32_t w = 0; w < submit->waitSemaphoreCount; w++) {
+            VkPs4Semaphore *sem = (VkPs4Semaphore *)submit->pWaitSemaphores[w];
+            if (sem && sem->is_timeline) {
+                vk_ps4_log("QueueSubmit: timeline semaphore waits are unsupported");
+                return VK_ERROR_FEATURE_NOT_PRESENT;
+            }
+        }
+        for (uint32_t s = 0; s < submit->signalSemaphoreCount; s++) {
+            VkPs4Semaphore *sem = (VkPs4Semaphore *)submit->pSignalSemaphores[s];
+            if (sem && sem->is_timeline) {
+                vk_ps4_log("QueueSubmit: timeline semaphore signals are unsupported");
+                return VK_ERROR_FEATURE_NOT_PRESENT;
+            }
+        }
+    }
+
     for (uint32_t i = 0; i < submitCount; i++) {
         const VkSubmitInfo *submit = &pSubmits[i];
 
