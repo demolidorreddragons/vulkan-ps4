@@ -10,12 +10,13 @@ Base audited: `f4d940b723771b3fe637e8ac0704bb5d6ab19622`
 - Semaphore/fence signal generations advance before attempting EOP submission. This keeps an old label value from comparing equal after a failed attempt.
 - Newly created unsignaled fences use generation 1 with label 0. Previously both were zero, so the existing equality check could report a never-submitted fence as complete.
 - `QueueWaitIdle` propagates an EOP submission error.
+- `DeviceWaitIdle` now calls `QueueWaitIdle` for every created queue handle (including multiple queues in one family) and propagates the first failure instead of waiting only on `queues[0]`.
 - `tests/test_queue_sync_contract.py` adds source-level regression guards. CMake registers this check when a Python 3 interpreter is found.
 
 ## Validation performed
 
 - Reviewed the edited source at the branch head.
-- Ten source-contract conditions were evaluated against the fetched branch contents; all passed.
+- Ten original source-contract conditions were evaluated against the fetched branch contents; all passed. An additional condition now guards the all-queues `DeviceWaitIdle` behavior; the updated Python test has not been executed.
 - The Python test itself has not been executed in a local runtime.
 - No host CMake build, CTest execution, OpenOrbis build, or PS4 hardware test has been performed.
 
@@ -59,10 +60,18 @@ A repository-wide path inventory and source review found no queue/mutex implemen
 Additional concrete hazards in the current source:
 
 - `vk_ps4_QueueWaitIdle` writes the idle label into the final dword of the same device-wide epilogue allocation, then records/submits EOP into its beginning. Concurrent QueueSubmit/QueueWaitIdle calls can overwrite the same command storage and label without ownership or serialization.
-- `vk_ps4_DeviceWaitIdle` waits only on `queues[0]`, although CreateDevice can create queues for multiple requested families/indices. A successful wait on the first queue does not establish that all other queues are idle.
+- `vk_ps4_DeviceWaitIdle` previously waited only on `queues[0]`; the branch now iterates all created queue handles sequentially and propagates errors. This removes the single-queue omission, but does not resolve the shared epilogue-buffer lifetime/concurrency hazard described above.
 - `vk_ps4_WaitForFences` treats `f->signaled` as sufficient even on Orbis, but `vk_ps4_GetFenceStatus` overwrites that result with the GPU-label comparison whenever a label exists. These two entry points therefore disagree after CPU-side signaling (for example, acquire/present paths) and need a unified, spec-backed state model.
 - Timeline semaphores are parsed and exposed by the sync implementation, but QueueSubmit treats every semaphore as a binary semaphore and uses the binary `signal_value` label path. Timeline semaphore queue operations are not implemented by the current queue path; this must be rejected or implemented explicitly rather than silently treated as binary.
 
 ## Safe boundary
 
 No additional synchronization code was changed in this follow-up. The repository does not currently provide an evidenced mutex primitive or a completion/retirement primitive for reusing the shared command buffer. The next implementation step must first select and verify the platform synchronization API and the GNM completion mechanism from authoritative SDK/header/runtime evidence, then add a per-submission command-buffer lifetime model and tests. Host-only source checks cannot qualify these hardware contracts.
+
+
+## Follow-up implementation: all-queue DeviceWaitIdle
+
+- Replaced the first-queue-only wait with a loop over all non-null entries in `dev->queues[0..queue_count)`.
+- Each queue is passed to `vk_ps4_QueueWaitIdle`; the first non-`VK_SUCCESS` result is returned immediately.
+- Added a source-contract assertion for iteration, per-queue waiting, and error propagation.
+- This is a source-level correction only. It does not prove the EOP completion mechanism or shared command-buffer storage safe under concurrent QueueSubmit/QueueWaitIdle calls.
