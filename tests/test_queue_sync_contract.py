@@ -118,4 +118,16 @@ require(
     "GetFenceStatus preserves CPU-signaled fences consistently with WaitForFences",
 )
 
+queue_wait_idle = function_body(queue, "vk_ps4_QueueWaitIdle(", "vk_ps4_DeviceWaitIdle(")
+require(
+    "!dev || !dev->gnm_epilogue_cmd || dev->gnm_epilogue_cmd_dwords < 8" in queue_wait_idle,
+    "QueueWaitIdle fails closed when epilogue storage is absent or undersized",
+)
+require(
+    "const uint32_t max_polls = 1u << 24;" in queue_wait_idle
+    and "if (*idle_label != 1)" in queue_wait_idle
+    and "return VK_ERROR_DEVICE_LOST;" in queue_wait_idle,
+    "QueueWaitIdle uses a bounded completion poll and reports missing GPU progress",
+)
+
 print("Queue synchronization source contract checks passed.")
