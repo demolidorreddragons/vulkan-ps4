@@ -93,12 +93,12 @@ vk_ps4_QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSub
                     1, &wait_addr, &wait_bytes, NULL, NULL
                 );
                 if (wait_result != 0) {
-                    /* WaitMem submit failed — fall back to CPU check. */
-                    if (!sem->signaled) {
-                        /* On host, the serialized submit model means the
-                         * signaling submit already ran.  If not signaled,
-                         * proceed anyway to avoid deadlock. */
-                    }
+                    /* A failed GPU wait cannot be treated as satisfied.
+                     * Preserve the binary semaphore state for diagnosis
+                     * and fail the submission closed. */
+                    vk_ps4_log("QueueSubmit: WAIT_REG_MEM submit FAILED: %d",
+                               wait_result);
+                    return VK_ERROR_DEVICE_LOST;
                 }
             } else {
                 /* Host fallback: check CPU-side signaled flag. */
@@ -131,13 +131,8 @@ vk_ps4_QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSub
             if (result != 0) {
                 vk_ps4_log("QueueSubmit: sceGnmSubmitCommandBuffers FAILED: %d",
                            result);
-                /* Submission failed — signal fence to avoid deadlock */
-                if (fence) {
-                    VkPs4Fence *f = (VkPs4Fence *)fence;
-                    f->signaled = true;
-                    f->signal_value++;
-                    if (f->label) *f->label = f->signal_value;
-                }
+                /* Failed submission is not completion.  Leave the fence
+                 * unsignaled and its GPU label untouched. */
                 return VK_ERROR_DEVICE_LOST;
             }
         }
@@ -149,30 +144,34 @@ vk_ps4_QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSub
         for (uint32_t s = 0; s < submit->signalSemaphoreCount; s++) {
             VkPs4Semaphore *sem = (VkPs4Semaphore *)submit->pSignalSemaphores[s];
             if (!sem) continue;
-            sem->signal_value++;
-            sem->signaled = false;
+            uint32_t next_signal_value = sem->signal_value + 1;
             if (dev && dev->gnm_epilogue_cmd && sem->label) {
                 uint64_t label_addr = (uint64_t)(uintptr_t)sem->label;
                 uint32_t eop_bytes = vk_ps4_queue_emit_eop(
-                    dev, label_addr, sem->signal_value
+                    dev, label_addr, next_signal_value
                 );
                 void *eop_addr = dev->gnm_epilogue_cmd;
                 int32_t result = sceGnmSubmitCommandBuffers(
                     1, &eop_addr, &eop_bytes, NULL, NULL
                 );
                 if (result != 0) {
-                    /* EOP submit failed — fall back to CPU signaling so
-                     * the semaphore doesn't deadlock waiters. */
-                    sem->signaled = true;
-                    *sem->label = sem->signal_value;
+                    /* Failed EOP submission is not a signal.  Do not write
+                     * the completion label from the CPU or consume the
+                     * semaphore's next signal value. */
+                    vk_ps4_log("QueueSubmit: semaphore EOP submit FAILED: %d",
+                               result);
+                    return VK_ERROR_DEVICE_LOST;
                 }
+                sem->signal_value = next_signal_value;
+                sem->signaled = false;
 #ifndef VK_USE_PLATFORM_PS4
-                /* On host, the GPU submit is a no-op so the label is never
-                 * written by the GPU.  Set signaled=true for host builds. */
+                /* Host submit is a no-op; there is no GPU to signal. */
                 sem->signaled = true;
+                *sem->label = sem->signal_value;
 #endif
             } else {
                 /* No epilogue buffer (host) — CPU-side signaling. */
+                sem->signal_value = next_signal_value;
                 sem->signaled = true;
                 if (sem->label) *sem->label = sem->signal_value;
             }
@@ -185,30 +184,31 @@ vk_ps4_QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSub
      * previous signal (e.g., AcquireNextImageKHR sets signaled=true). */
     if (fence) {
         VkPs4Fence *f = (VkPs4Fence *)fence;
-        f->signal_value++;
-        f->signaled = false;
+        uint32_t next_signal_value = f->signal_value + 1;
         if (dev && dev->gnm_epilogue_cmd && f->label) {
             uint64_t label_addr = (uint64_t)(uintptr_t)f->label;
             uint32_t eop_bytes = vk_ps4_queue_emit_eop(
-                dev, label_addr, f->signal_value
+                dev, label_addr, next_signal_value
             );
             void *eop_addr = dev->gnm_epilogue_cmd;
             int32_t result = sceGnmSubmitCommandBuffers(
                 1, &eop_addr, &eop_bytes, NULL, NULL
             );
             if (result != 0) {
-                /* EOP submit failed — fall back to CPU signaling. */
-                f->signaled = true;
-                *f->label = f->signal_value;
+                /* Failed EOP submission is not completion. */
+                vk_ps4_log("QueueSubmit: fence EOP submit FAILED: %d", result);
+                return VK_ERROR_DEVICE_LOST;
             }
-            /* On success, the GPU will write the label asynchronously.
-             * Set signaled=true as a fallback for host builds where the
-             * GPU submit is a no-op and the label is never written. */
+            f->signal_value = next_signal_value;
+            f->signaled = false;
 #ifndef VK_USE_PLATFORM_PS4
+            /* Host submit is a no-op; there is no GPU to signal. */
             f->signaled = true;
+            *f->label = f->signal_value;
 #endif
         } else {
             /* No epilogue buffer (host) — CPU-side signaling. */
+            f->signal_value = next_signal_value;
             f->signaled = true;
             if (f->label) *f->label = f->signal_value;
         }
@@ -246,6 +246,10 @@ vk_ps4_QueueWaitIdle(VkQueue queue) {
             1, &eop_addr, &eop_bytes, NULL, NULL
         );
 #ifdef VK_USE_PLATFORM_PS4
+        if (result != 0) {
+            vk_ps4_log("QueueWaitIdle: EOP submit FAILED: %d", result);
+            return VK_ERROR_DEVICE_LOST;
+        }
         if (result == 0) {
             /* Poll until the GPU writes the label. */
             while (*idle_label != 1) {
