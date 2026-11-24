@@ -11,6 +11,7 @@ root = Path(sys.argv[1])
 queue = (root / "src/vk_ps4_queue.c").read_text(encoding="utf-8")
 sync = (root / "src/vk_ps4_sync.c").read_text(encoding="utf-8")
 buffer = (root / "src/vk_ps4_buffer.c").read_text(encoding="utf-8")
+pipeline = (root / "src/vk_ps4_pipeline.c").read_text(encoding="utf-8")
 
 
 def require(condition, message):
@@ -136,6 +137,13 @@ require(
     "buf->memory->gnm_mem.mapped" in device_address
     and "buf->memory->gnm_mem.directmemory" not in device_address,
     "buffer device address uses the same mapped VA as GNM buffer descriptors",
+)
+
+require(
+    "usage >= 0x1cu && usage <= 0x1eu" in pipeline
+    and "has_unsupported_indirect_table" in pipeline
+    and 'CreateComputePipelines: indirect descriptor table usage (0x1c-0x1e) is unsupported' in pipeline,
+    "compute pipelines reject unsupported indirect descriptor tables instead of silently binding incomplete resources",
 )
 
 print("Queue synchronization and buffer-address source contract checks passed.")
