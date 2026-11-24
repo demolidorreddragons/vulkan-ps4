@@ -219,3 +219,12 @@ A public PS4 GNMX sample (Enderderder/SonyEngine/PS4Engine/PS4Engine/Source.cpp)
 This validates the architecture pattern (per-in-flight-context storage + GPU label + EOP event notification) with a real PS4 SDK-facing sample. It does not reveal the implementation of the proprietary GNMX helper or prove that the low-level OpenGNM wrapper can emit the same interrupt packet. In particular, the current sceGnmDrawCmdEventWriteEop wrapper has no interrupt-select parameter. The sample therefore narrows the implementation task: either expose/use a verified low-level EOP-interrupt packet builder, or adapt an available supported GNM submission helper; do not substitute the existing polling-only EOP path and assume it raises GfxEop.
 
 Source: https://github.com/Enderderder/SonyEngine/blob/master/PS4Engine/PS4Engine/Source.cpp
+
+
+## Fail-closed compute pipeline validation for indirect descriptor tables
+
+The compute pipeline creation path now scans the parsed GNM input-usage slots and rejects shader binaries containing usage types 0x1c, 0x1d, or 0x1e. The descriptor binder does not implement these indirect-table payloads, and the public OpenGNM headers identify the usage types and pointer width but do not define a proven payload layout. Previously, such a pipeline could be created and later have the required binding silently skipped. It now returns the existing unsupported-feature failure path rather than presenting an incomplete pipeline as usable.
+
+This is a safety boundary, not implementation of indirect descriptor tables. It applies to compute pipeline creation only; graphics pipeline validation remains to be audited and guarded separately. The source-contract test was extended to assert this rejection. The test has not yet been executed in a runtime, and no CMake build, CTest, OpenOrbis build, or PS4 hardware validation has been performed.
+
+Evidence: OpenGNM documents the usage enum values in its shader reference: https://ps4-opengnm.github.io/opengnm/reference/shader/ (types 0x1c-0x1e).
