@@ -131,7 +131,7 @@ require(
     "QueueWaitIdle uses a bounded completion poll and reports missing GPU progress",
 )
 
-device_address = function_body(buffer, "vk_ps4_GetBufferDeviceAddress(", "")
+device_address = buffer[buffer.index("vk_ps4_GetBufferDeviceAddress("):]
 require(
     "buf->memory->gnm_mem.mapped" in device_address
     and "buf->memory->gnm_mem.directmemory" not in device_address,
