@@ -5,7 +5,6 @@ These checks do not emulate GNM or prove hardware completion. They guard
 against reintroducing CPU-forged GPU completion after a failed submission.
 """
 from pathlib import Path
-import re
 import sys
 
 root = Path(sys.argv[1])
@@ -25,48 +24,58 @@ def function_body(source, name, next_name):
     return source[start:end]
 
 
+def failure_returns_device_lost(source, marker):
+    start = source.index(marker)
+    end = source.index("return VK_ERROR_DEVICE_LOST;", start)
+    return end - start < 300
+
+
 submit = function_body(queue, "vk_ps4_QueueSubmit(", "vk_ps4_QueueWaitIdle(")
 wait_idle = function_body(queue, "vk_ps4_QueueWaitIdle(", "vk_ps4_DeviceWaitIdle(")
 create_fence = function_body(sync, "vk_ps4_CreateFence(", "vk_ps4_DestroyFence(")
 
 require(
-    re.search(r"WAIT_REG_MEM submit FAILED[\\s\\S]*?return VK_ERROR_DEVICE_LOST;", submit) is not None,
+    failure_returns_device_lost(submit, "WAIT_REG_MEM submit FAILED"),
     "failed WAIT_REG_MEM aborts QueueSubmit",
 )
 require(
-    re.search(r"sceGnmSubmitCommandBuffers FAILED[\\s\\S]*?return VK_ERROR_DEVICE_LOST;", submit) is not None,
-    "failed command-buffer submission aborts without signaling its fence",
+    failure_returns_device_lost(submit, "sceGnmSubmitCommandBuffers FAILED"),
+    "failed command-buffer submission aborts QueueSubmit",
 )
+sem_error = submit[submit.index("semaphore EOP submit FAILED"):]
+sem_error = sem_error[:sem_error.index("return VK_ERROR_DEVICE_LOST;")]
 require(
-    re.search(r"semaphore EOP submit FAILED[\\s\\S]*?return VK_ERROR_DEVICE_LOST;", submit) is not None,
-    "failed semaphore EOP returns device-lost",
+    "semaphore EOP submit FAILED" in submit
+    and "return VK_ERROR_DEVICE_LOST;" in submit[submit.index("semaphore EOP submit FAILED"):]
+    and "*sem->label =" not in sem_error,
+    "failed semaphore EOP does not CPU-write its completion label",
 )
+fence_error = submit[submit.index("fence EOP submit FAILED"):]
+fence_error = fence_error[:fence_error.index("return VK_ERROR_DEVICE_LOST;")]
 require(
-    re.search(r"fence EOP submit FAILED[\\s\\S]*?return VK_ERROR_DEVICE_LOST;", submit) is not None,
-    "failed fence EOP returns device-lost",
+    "fence EOP submit FAILED" in submit
+    and "return VK_ERROR_DEVICE_LOST;" in submit[submit.index("fence EOP submit FAILED"):]
+    and "*f->label =" not in fence_error,
+    "failed fence EOP does not CPU-write its completion label",
 )
 require(
     "sem->signal_value = next_signal_value;" in submit
     and submit.index("sem->signal_value = next_signal_value;") < submit.index("semaphore EOP submit FAILED"),
-    "semaphore generation advances before attempting EOP, so stale label cannot match",
+    "semaphore generation advances before EOP, preventing stale-label match",
 )
 require(
     "f->signal_value = next_signal_value;" in submit
     and submit.index("f->signal_value = next_signal_value;") < submit.index("fence EOP submit FAILED"),
-    "fence generation advances before attempting EOP, so stale label cannot match",
+    "fence generation advances before EOP, preventing stale-label match",
 )
 require(
-    re.search(r"QueueWaitIdle: EOP submit FAILED[\\s\\S]*?return VK_ERROR_DEVICE_LOST;", wait_idle) is not None,
+    failure_returns_device_lost(wait_idle, "QueueWaitIdle: EOP submit FAILED"),
     "QueueWaitIdle propagates EOP submission failure",
 )
 require(
-    "fence->signal_value = 1u;" in create_fence,
-    "new unsignaled fences start at generation one, distinct from zero label",
-)
-require(
-    "fence->label = (volatile uint32_t *)fence->label_mem.mapped;\\n    *fence->label = fence->signal_value;"
-    in create_fence,
-    "initial fence label matches only the signaled initial state",
+    "fence->signal_value = 1u;" in create_fence
+    and "*fence->label = fence->signaled ? fence->signal_value : 0u;" in create_fence,
+    "new unsignaled fences start at generation one with a zero label",
 )
 require(
     "#ifndef VK_USE_PLATFORM_PS4" in submit,
