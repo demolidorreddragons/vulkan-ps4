@@ -165,3 +165,17 @@ A further source-level cross-check found a potentially more fundamental address-
 - This is a source audit, not a claim that the mismatch has been reproduced on hardware. No speculative pointer cast or cache operation was added.
 
 Reference: OpenGNM DirectMemory struct/API documentation: https://ps4-opengnm.github.io/opengnm/reference/helpers/
+
+
+## Follow-up: indirect input-usage metadata evidence
+
+Pinned OpenGNM source confirms:
+- `GnmShaderInputUsageType` assigns `PTR_INDIRECTRESOURCETABLE=0x1c`, `PTR_INDIRECTINTERNALRESOURCETABLE=0x1d`, and `PTR_INDIRECTRWRESOURCETABLE=0x1e`.
+- `sceGnmShaderInputUsageTypeSize()` classifies all three as two dwords, the same pointer-width class as the ordinary table-pointer usage types.
+- The public header and shader-binary reference do not define the pointed-to indirect-table payload layout, nesting/indirection rules, or per-slot descriptor representation. The generic size helper only establishes the user-data pointer width; it does not establish the table contents.
+- Therefore adding a switch case that simply passes the existing `GnmBuffer[]` / `GnmTexture[]` array would be an unsupported assumption. The missing 0x1c path remains deliberately unimplemented pending an authoritative layout or known-good shader/runtime example.
+
+Pinned source references:
+- `include/gnm_shader.h`: https://github.com/PS4-OpenGNM/opengnm/blob/7a920d7e0415edc6ff0e17b4a38a393809736dfe/include/gnm_shader.h
+- `include/gnm_shaderbinary.h`: https://github.com/PS4-OpenGNM/opengnm/blob/11954c30baca7bdd61fb2f3cd271be6201a28e1b/include/gnm_shaderbinary.h
+- `src/helpers.c` DirectMemory mapping: https://github.com/PS4-OpenGNM/opengnm/blob/898753cedc859d0d4b50113f8ab1626c9aa97500/src/helpers.c
