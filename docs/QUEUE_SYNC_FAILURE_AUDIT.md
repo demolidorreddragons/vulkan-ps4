@@ -206,3 +206,16 @@ No synchronization implementation was changed on the strength of this lead. The 
 The OpenGNM wrapper signature for `sceGnmDrawCmdEventWriteEop` exposes only event type, destination, data selector, and immediate value; it does not expose an interrupt-select argument. The OpenGNM type reference enumerates event types (including `GNM_CACHE_FLUSH_AND_INV_TS_EVENT`) but does not document a public way to request the GfxEop interrupt through this helper. Generic AMD EVENT_WRITE_EOP documentation describes INT_SEL packet bits, but that is not a PS4 retail ABI contract. Therefore the event-queue lead does not yet provide an implementable completion callback through the current wrapper. Do not patch packet bits manually until a PS4-specific authoritative definition or a known-good retail sample confirms the exact packet encoding and event ordering.
 
 Additional research reference: https://ps4-opengnm.github.io/opengnm/reference/types/ (GnmEventType) and https://ps4-opengnm.github.io/opengnm/reference/drawcommandbuffer/#scegnmdrawcmdeventwriteeop.
+
+
+### Known-good SDK sample pattern located
+
+A public PS4 GNMX sample (Enderderder/SonyEngine/PS4Engine/PS4Engine/Source.cpp) provides a stronger design reference than the generic API declarations:
+
+- Creates a kernel EOP event queue with sceKernelCreateEqueue and registers Gnm::kEqEventGfxEop through Gnm::addEqEvent.
+- Allocates a separate GPU label for each render context and cycles through multiple contexts. A context is not reset/overwritten until its label indicates the GPU has freed it; while waiting, the CPU blocks on sceKernelWaitEqueue.
+- Submits through GnmxGfxContext::submitAndFlipWithEopInterrupt, which explicitly writes the context label and triggers the EOP event queue. On shutdown it waits for all in-flight context labels before unregistering/deleting the event queue and freeing allocations.
+
+This validates the architecture pattern (per-in-flight-context storage + GPU label + EOP event notification) with a real PS4 SDK-facing sample. It does not reveal the implementation of the proprietary GNMX helper or prove that the low-level OpenGNM wrapper can emit the same interrupt packet. In particular, the current sceGnmDrawCmdEventWriteEop wrapper has no interrupt-select parameter. The sample therefore narrows the implementation task: either expose/use a verified low-level EOP-interrupt packet builder, or adapt an available supported GNM submission helper; do not substitute the existing polling-only EOP path and assume it raises GfxEop.
+
+Source: https://github.com/Enderderder/SonyEngine/blob/master/PS4Engine/PS4Engine/Source.cpp
