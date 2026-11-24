@@ -145,6 +145,8 @@ vk_ps4_QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSub
             VkPs4Semaphore *sem = (VkPs4Semaphore *)submit->pSignalSemaphores[s];
             if (!sem) continue;
             uint32_t next_signal_value = sem->signal_value + 1;
+            sem->signal_value = next_signal_value;
+            sem->signaled = false;
             if (dev && dev->gnm_epilogue_cmd && sem->label) {
                 uint64_t label_addr = (uint64_t)(uintptr_t)sem->label;
                 uint32_t eop_bytes = vk_ps4_queue_emit_eop(
@@ -162,8 +164,6 @@ vk_ps4_QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSub
                                result);
                     return VK_ERROR_DEVICE_LOST;
                 }
-                sem->signal_value = next_signal_value;
-                sem->signaled = false;
 #ifndef VK_USE_PLATFORM_PS4
                 /* Host submit is a no-op; there is no GPU to signal. */
                 sem->signaled = true;
@@ -171,7 +171,6 @@ vk_ps4_QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSub
 #endif
             } else {
                 /* No epilogue buffer (host) — CPU-side signaling. */
-                sem->signal_value = next_signal_value;
                 sem->signaled = true;
                 if (sem->label) *sem->label = sem->signal_value;
             }
@@ -185,6 +184,8 @@ vk_ps4_QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSub
     if (fence) {
         VkPs4Fence *f = (VkPs4Fence *)fence;
         uint32_t next_signal_value = f->signal_value + 1;
+        f->signal_value = next_signal_value;
+        f->signaled = false;
         if (dev && dev->gnm_epilogue_cmd && f->label) {
             uint64_t label_addr = (uint64_t)(uintptr_t)f->label;
             uint32_t eop_bytes = vk_ps4_queue_emit_eop(
@@ -199,8 +200,6 @@ vk_ps4_QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSub
                 vk_ps4_log("QueueSubmit: fence EOP submit FAILED: %d", result);
                 return VK_ERROR_DEVICE_LOST;
             }
-            f->signal_value = next_signal_value;
-            f->signaled = false;
 #ifndef VK_USE_PLATFORM_PS4
             /* Host submit is a no-op; there is no GPU to signal. */
             f->signaled = true;
@@ -208,7 +207,6 @@ vk_ps4_QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSub
 #endif
         } else {
             /* No epilogue buffer (host) — CPU-side signaling. */
-            f->signal_value = next_signal_value;
             f->signaled = true;
             if (f->label) *f->label = f->signal_value;
         }
