@@ -112,3 +112,10 @@ No additional synchronization code was changed in this follow-up. The repository
 - OpenOrbis header (public declaration/comment): https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/blob/0a1aaf9dd4a92695538bdeb09fb056d06dd11725/include/orbis/GnmDriver.h
 - shadPS4 emulation implementation (reference only, not hardware ABI proof): https://github.com/shadps4-emu/shadPS4/blob/5c3b6910b99ea4e4d019533490137fe80e400306/src/core/libraries/gnmdriver/gnmdriver.cpp
 - GPCS4 emulation wrapper (reference only): https://github.com/Inori/GPCS4/blob/88480de36f983c66f7dd2c5951fead1a740d47a5/GPCS4/SceModules/SceGnmDriver/sce_gnm_submit.cpp
+
+
+## Follow-up: fail closed on unbounded or unavailable QueueWaitIdle
+
+- The Orbis path previously spun forever if the submitted EOP marker was never observed. It now uses a bounded poll budget and returns `VK_ERROR_DEVICE_LOST` if the marker remains absent. The budget is an iteration bound, not a wall-clock timeout or a hardware completion guarantee.
+- QueueWaitIdle now rejects missing or undersized epilogue command storage instead of silently returning success without a completion marker.
+- These guards prevent an infinite hang and false success. They do not solve the shared command-buffer lifetime, GPU-visible label coherency, or firmware 14.02 completion contract.
