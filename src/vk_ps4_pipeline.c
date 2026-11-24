@@ -802,7 +802,25 @@ vk_ps4_CreateComputePipelines(VkDevice device, VkPipelineCache pipelineCache,
                 }
             }
 
-            cs_ok = true;
+            /* The descriptor binder does not implement GNM indirect
+             * resource-table payloads (usage types 0x1c..0x1e). Reject such
+             * compute shaders here instead of creating a pipeline whose
+             * required resources would be silently left unbound. The exact
+             * indirect-table ABI/layout is not established by OpenGNM's
+             * public headers, so do not reinterpret these as ordinary tables. */
+            bool has_unsupported_indirect_table = false;
+            for (uint32_t s = 0; s < pipe->vs_input_usage_slot_count; s++) {
+                uint8_t usage = pipe->vs_input_usage_slots[s].usagetype;
+                if (usage >= 0x1cu && usage <= 0x1eu) {
+                    has_unsupported_indirect_table = true;
+                    break;
+                }
+            }
+            if (has_unsupported_indirect_table) {
+                vk_ps4_log("CreateComputePipelines: indirect descriptor table usage (0x1c-0x1e) is unsupported");
+            } else {
+                cs_ok = true;
+            }
         }
 
         /* Keep the compiled binary alive — cs_regs contains a GPU address

@@ -178,6 +178,16 @@ if(NOT VK_PS4_ORBIS)
     target_link_libraries(vk_ps4_format_test PRIVATE vulkan_ps4)
     add_test(NAME format_test COMMAND vk_ps4_format_test)
 
+    # Source-level regression guard for GPU synchronization failure paths.
+    # This does not replace GNM runtime or PS4 hardware validation.
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME queue_sync_failure_contract
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_queue_sync_contract.py
+                ${CMAKE_CURRENT_SOURCE_DIR})
+    endif()
+
     # Phase 1 triangle test — exercises full ICD pipeline
     add_executable(vk_ps4_triangle_test tests/test_triangle.c)
     target_link_libraries(vk_ps4_triangle_test PRIVATE vulkan_ps4)

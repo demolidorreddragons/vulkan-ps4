@@ -87,7 +87,10 @@ vk_ps4_CreateFence(VkDevice device, const VkFenceCreateInfo *pCreateInfo,
     fence->type = VK_PS4_OBJ_FENCE;
     fence->device = dev;
     fence->signaled = (pCreateInfo->flags & VK_FENCE_CREATE_SIGNALED_BIT) != 0;
-    fence->signal_value = fence->signaled ? 1u : 0u;
+    /* Keep the unsignaled generation distinct from the zero-initialized
+     * GPU label.  Otherwise GetFenceStatus/WaitForFences would treat 0 == 0
+     * as an already-completed fence before its first submission. */
+    fence->signal_value = 1u;
 
     /* Allocate GPU label for EOP signaling. */
     VkResult label_result = vk_ps4_sync_alloc_label(dev, &fence->label_mem);
@@ -96,7 +99,7 @@ vk_ps4_CreateFence(VkDevice device, const VkFenceCreateInfo *pCreateInfo,
         return label_result;
     }
     fence->label = (volatile uint32_t *)fence->label_mem.mapped;
-    *fence->label = fence->signal_value;
+    *fence->label = fence->signaled ? fence->signal_value : 0u;
 
     *pFence = (VkFence)fence;
     return VK_SUCCESS;
@@ -199,7 +202,7 @@ vk_ps4_GetFenceStatus(VkDevice device, VkFence fence) {
     if (!fence) return VK_ERROR_INITIALIZATION_FAILED;
     VkPs4Fence *f = (VkPs4Fence *)fence;
     bool done = f->signaled;
-    if (f->label) {
+    if (!done && f->label) {
         done = (*f->label == f->signal_value);
     }
     return done ? VK_SUCCESS : VK_NOT_READY;
