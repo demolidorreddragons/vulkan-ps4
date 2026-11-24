@@ -119,3 +119,22 @@ No additional synchronization code was changed in this follow-up. The repository
 - The Orbis path previously spun forever if the submitted EOP marker was never observed. It now uses a bounded poll budget and returns `VK_ERROR_DEVICE_LOST` if the marker remains absent. The budget is an iteration bound, not a wall-clock timeout or a hardware completion guarantee.
 - QueueWaitIdle now rejects missing or undersized epilogue command storage instead of silently returning success without a completion marker.
 - These guards prevent an infinite hang and false success. They do not solve the shared command-buffer lifetime, GPU-visible label coherency, or firmware 14.02 completion contract.
+
+
+## Follow-up: descriptor-table pointer path is not yet GPU-safe
+
+A separate inspection of the descriptor path found a concrete blocker relevant to compute dispatch:
+
+- `vk_ps4_CmdBindDescriptorSets` handles immediate descriptors and the pointer usage types `PTR_CONSTBUFFERTABLE`, `PTR_RESOURCETABLE`, `PTR_SAMPLERTABLE`, `PTR_RWRESOURCETABLE` (and graphics also `PTR_VERTEXBUFFERTABLE`). It does not handle `PTR_INDIRECTRESOURCETABLE` (0x1c), `PTR_INDIRECTINTERNALRESOURCETABLE` (0x1d), or `PTR_INDIRECTRWRESOURCETABLE` (0x1e). The switch falls through to the default no-op, so a shader requiring the indirect table gets no corresponding user-data pointer.
+- The Gate A compute artifact reports usage type 0x1c at user-data start register 2 and a two-SGPR indirect resource pointer. This makes the missing 0x1c path directly relevant to the current shader artifact, not merely a theoretical Vulkan feature.
+- Descriptor table arrays in this backend are allocated with `vk_ps4_alloc_zero`. The default allocator in `vk_ps4_alloc` is host `malloc` / aligned allocation unless the application supplies an allocator. The binding code passes these array addresses to `sceGnmDrawCmdSetPointerUserData`.
+- The pinned OpenGNM implementation of `sceGnmDrawCmdSetPointerUserData` copies the pointer value into the user-data register range; it does not allocate, map, or make the pointed-to host array GPU-resident. Therefore the current path does not establish a valid GPU address for these descriptor arrays.
+- No speculative mapping or indirect-table layout was added. The implementation needs a proven GPU-visible allocation/address model and the exact indirect-table encoding before it can be corrected safely.
+
+Evidence:
+- Backend descriptor binding: `src/vk_ps4_descriptor.c`, graphics and compute usage-type switches.
+- Backend default allocator: `src/vk_ps4_entry.c`, `vk_ps4_alloc`.
+- Pinned OpenGNM pointer writer: https://github.com/PS4-OpenGNM/OpenGNM/blob/1f3c309fb149d534b4db9506c1efa106dc771896/src/drawcommandbuffer.c#L1510-L1534
+- Pinned OpenOrbis usage enum previously audited: `PTR_INDIRECTRESOURCETABLE=0x1c`, `PTR_INDIRECTINTERNALRESOURCETABLE=0x1d`, `PTR_INDIRECTRWRESOURCETABLE=0x1e`.
+
+Status: descriptor-table GPU residency and the Gate A 0x1c binding path remain blocked. Do not claim compute descriptor binding or hardware dispatch readiness.
