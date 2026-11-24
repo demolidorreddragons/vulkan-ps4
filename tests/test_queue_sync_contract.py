@@ -32,6 +32,7 @@ def failure_returns_device_lost(source, marker):
 
 submit = function_body(queue, "vk_ps4_QueueSubmit(", "vk_ps4_QueueWaitIdle(")
 wait_idle = function_body(queue, "vk_ps4_QueueWaitIdle(", "vk_ps4_DeviceWaitIdle(")
+device_wait_idle = queue[queue.index("vk_ps4_DeviceWaitIdle("):]
 create_fence = function_body(sync, "vk_ps4_CreateFence(", "vk_ps4_DestroyFence(")
 
 require(
@@ -84,6 +85,14 @@ require(
     and "*fence->label = fence->signaled ? fence->signal_value : 0u;" in create_fence,
     "new unsignaled fences start at generation one with a zero label",
 )
+
+require(
+    "for (uint32_t i = 0; i < dev->queue_count; i++)" in device_wait_idle
+    and "vk_ps4_QueueWaitIdle((VkQueue)dev->queues[i])" in device_wait_idle
+    and "if (result != VK_SUCCESS)" in device_wait_idle,
+    "DeviceWaitIdle waits every created queue and propagates failures",
+)
+
 require(
     "#ifndef VK_USE_PLATFORM_PS4" in submit,
     "host-only no-GPU fallback remains compile-time isolated",
