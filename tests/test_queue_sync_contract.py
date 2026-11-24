@@ -34,6 +34,7 @@ submit = function_body(queue, "vk_ps4_QueueSubmit(", "vk_ps4_QueueWaitIdle(")
 wait_idle = function_body(queue, "vk_ps4_QueueWaitIdle(", "vk_ps4_DeviceWaitIdle(")
 device_wait_idle = queue[queue.index("vk_ps4_DeviceWaitIdle("):]
 create_fence = function_body(sync, "vk_ps4_CreateFence(", "vk_ps4_DestroyFence(")
+get_fence_status = function_body(sync, "vk_ps4_GetFenceStatus(", "vk_ps4_CreateSemaphore(")
 
 require(
     failure_returns_device_lost(submit, "WAIT_REG_MEM submit FAILED"),
@@ -103,6 +104,18 @@ require(
 require(
     "#ifndef VK_USE_PLATFORM_PS4" in submit,
     "host-only no-GPU fallback remains compile-time isolated",
+)
+
+require(
+    "sem->is_timeline" in submit
+    and "VK_ERROR_FEATURE_NOT_PRESENT" in submit
+    and submit.index("timeline semaphore waits are unsupported") < submit.index("for (uint32_t i = 0; i < submitCount; i++) {", submit.index("timeline semaphore waits are unsupported")),
+    "timeline semaphore queue operations are rejected before GPU submission",
+)
+require(
+    "bool done = f->signaled;" in get_fence_status
+    and "if (!done && f->label)" in get_fence_status,
+    "GetFenceStatus preserves CPU-signaled fences consistently with WaitForFences",
 )
 
 print("Queue synchronization source contract checks passed.")
