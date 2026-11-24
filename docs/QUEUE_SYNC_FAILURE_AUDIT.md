@@ -179,3 +179,23 @@ Pinned source references:
 - `include/gnm_shader.h`: https://github.com/PS4-OpenGNM/opengnm/blob/7a920d7e0415edc6ff0e17b4a38a393809736dfe/include/gnm_shader.h
 - `include/gnm_shaderbinary.h`: https://github.com/PS4-OpenGNM/opengnm/blob/11954c30baca7bdd61fb2f3cd271be6201a28e1b/include/gnm_shaderbinary.h
 - `src/helpers.c` DirectMemory mapping: https://github.com/PS4-OpenGNM/opengnm/blob/898753cedc859d0d4b50113f8ab1626c9aa97500/src/helpers.c
+
+
+## Follow-up: retail completion-notification candidate discovered (not yet qualified)
+
+A broader cross-repository audit found a concrete candidate that was missed by the earlier statement that no platform completion-notification API had been identified:
+
+- OpenGNM's published driver reference declares `sceGnmAddEqEvent(OrbisKernelEqueue, id, udata)` and `sceGnmDeleteEqEvent` for registering/removing GPU events on a kernel event queue. The same reference marks `sceGnmGetEqTimeStamp` as a retail stub, but does not mark Add/Delete as stubs.
+- OpenOrbis `libkernel.h` declares `sceKernelCreateEqueue`, `sceKernelWaitEqueue`, `sceKernelDeleteEqueue`, and the `scePthreadMutexInit/Lock/Unlock/Destroy` family. This gives public declarations for an event queue and CPU-side serialization primitive; it does not by itself prove their behavior on firmware 14.02 or define the exact object ABI/initialization required by this backend.
+- Public GNM command-buffer documentation confirms `sceGnmDrawCmdEventWriteEop` emits an EOP event with data to a GPU-visible address. The documentation retrieved does not specify the exact interrupt-select encoding needed to trigger the registered EQ event, nor does it prove that the event is delivered only after the write is globally visible on retail FW 14.02.
+- Emulator and reverse-engineered runtime material describes GfxEop/graphics-core EQ notifications, but that is supporting research only, not retail firmware ABI proof.
+
+This is a viable investigation path, not a completed fix. Before using it for command-buffer retirement, verify from an authoritative GNM packet definition or known-good retail sample: (1) the exact EOP interrupt-select bits and event ID, (2) whether the EQ notification is ordered after the EOP memory write, (3) event delivery on retail 14.02, (4) safe wait/timeout behavior, and (5) how multiple queues/events are distinguished. A kernel mutex can serialize CPU recording/submission, but it cannot replace the GPU completion event needed before reusing command storage.
+
+References:
+- OpenGNM driver API: https://ps4-opengnm.github.io/opengnm/reference/driver/#scegnmaddeqevent
+- OpenGNM EOP command API: https://ps4-opengnm.github.io/opengnm/reference/drawcommandbuffer/#scegnmdrawcmdeventwriteeop
+- OpenOrbis libkernel declarations: https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/blob/master/include/orbis/libkernel.h
+- OpenOrbis GNM driver declarations: https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/blob/master/include/orbis/GnmDriver.h
+
+No synchronization implementation was changed on the strength of this lead. The shared epilogue-buffer reuse remains unsafe until the retail completion contract is established and tested.
