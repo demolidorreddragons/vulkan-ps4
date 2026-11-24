@@ -85,3 +85,16 @@ No additional synchronization code was changed in this follow-up. The repository
 - Added a source-contract assertion that the unsignaled check and fail-closed return occur before semaphore consumption.
 - This is not a replacement for proper asynchronous GPU semaphore waits. The Orbis path still needs correct generation consumption, command-buffer lifetime/retirement, and hardware validation.
 - The updated Python source-contract test has not been executed in a runtime.
+
+
+## Follow-up implementation: reject unsupported timeline queue operations
+
+- `QueueSubmit` now preflights every wait/signal semaphore across the complete submit batch before issuing any GPU work.
+- If any referenced semaphore is timeline-typed, the call returns `VK_ERROR_FEATURE_NOT_PRESENT`; the backend no longer silently treats a timeline semaphore as binary or partially executes earlier submits in the same batch.
+- This is an explicit unsupported-feature boundary, not timeline semaphore support. Host timeline counter/signal entry points remain separately implemented and are not evidence of GPU queue integration.
+
+## Follow-up implementation: consistent CPU/GPU fence status
+
+- `GetFenceStatus` now accepts the CPU-side signaled flag before consulting the GPU label, matching the existing `WaitForFences` predicate.
+- Previously it overwrote a true CPU-side state with a stale GPU label comparison, which could report a fence as not ready after CPU-side signaling paths.
+- This consistency fix does not qualify the GPU label memory or EOP completion mechanism.
