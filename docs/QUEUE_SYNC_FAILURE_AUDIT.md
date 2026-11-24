@@ -50,3 +50,19 @@ These remaining issues require evidence-backed implementation and runtime valida
 1. Design command-buffer storage with explicit ownership per in-flight submission and a proven retirement event; test multiple queues and overlapping submits.
 2. Define binary semaphore state transitions separately from GPU label values; cover wait-before-signal, signal-wait-signal, repeated waits, multiple submits, and failed submissions.
 3. Only then implement the design with the platform's verified synchronization primitives and validate it on the target firmware/hardware.
+
+
+## Follow-up audit: no safe retirement primitive identified in this repository
+
+A repository-wide path inventory and source review found no queue/mutex implementation or platform synchronization wrapper that can be reused for this fix. The queue structure has an opaque `submit_mutex` field, but the repository has no implementation/use site for it in the audited queue/device files. Therefore this branch cannot safely introduce a lock by guessing an Orbis mutex ABI.
+
+Additional concrete hazards in the current source:
+
+- `vk_ps4_QueueWaitIdle` writes the idle label into the final dword of the same device-wide epilogue allocation, then records/submits EOP into its beginning. Concurrent QueueSubmit/QueueWaitIdle calls can overwrite the same command storage and label without ownership or serialization.
+- `vk_ps4_DeviceWaitIdle` waits only on `queues[0]`, although CreateDevice can create queues for multiple requested families/indices. A successful wait on the first queue does not establish that all other queues are idle.
+- `vk_ps4_WaitForFences` treats `f->signaled` as sufficient even on Orbis, but `vk_ps4_GetFenceStatus` overwrites that result with the GPU-label comparison whenever a label exists. These two entry points therefore disagree after CPU-side signaling (for example, acquire/present paths) and need a unified, spec-backed state model.
+- Timeline semaphores are parsed and exposed by the sync implementation, but QueueSubmit treats every semaphore as a binary semaphore and uses the binary `signal_value` label path. Timeline semaphore queue operations are not implemented by the current queue path; this must be rejected or implemented explicitly rather than silently treated as binary.
+
+## Safe boundary
+
+No additional synchronization code was changed in this follow-up. The repository does not currently provide an evidenced mutex primitive or a completion/retirement primitive for reusing the shared command buffer. The next implementation step must first select and verify the platform synchronization API and the GNM completion mechanism from authoritative SDK/header/runtime evidence, then add a per-submission command-buffer lifetime model and tests. Host-only source checks cannot qualify these hardware contracts.
