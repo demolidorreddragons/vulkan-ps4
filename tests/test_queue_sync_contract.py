@@ -42,6 +42,13 @@ require(
     failure_returns_device_lost(submit, "sceGnmSubmitCommandBuffers FAILED"),
     "failed command-buffer submission aborts QueueSubmit",
 )
+command_error = submit[submit.index("sceGnmSubmitCommandBuffers FAILED"):]
+command_error = command_error[:command_error.index("return VK_ERROR_DEVICE_LOST;")]
+require(
+    "f->signaled = true;" not in command_error
+    and "*f->label =" not in command_error,
+    "failed command-buffer submission does not forge fence completion",
+)
 sem_error = submit[submit.index("semaphore EOP submit FAILED"):]
 sem_error = sem_error[:sem_error.index("return VK_ERROR_DEVICE_LOST;")]
 require(
