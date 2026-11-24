@@ -199,3 +199,10 @@ References:
 - OpenOrbis GNM driver declarations: https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/blob/master/include/orbis/GnmDriver.h
 
 No synchronization implementation was changed on the strength of this lead. The shared epilogue-buffer reuse remains unsafe until the retail completion contract is established and tested.
+
+
+### EOP interrupt-select cross-check
+
+The OpenGNM wrapper signature for `sceGnmDrawCmdEventWriteEop` exposes only event type, destination, data selector, and immediate value; it does not expose an interrupt-select argument. The OpenGNM type reference enumerates event types (including `GNM_CACHE_FLUSH_AND_INV_TS_EVENT`) but does not document a public way to request the GfxEop interrupt through this helper. Generic AMD EVENT_WRITE_EOP documentation describes INT_SEL packet bits, but that is not a PS4 retail ABI contract. Therefore the event-queue lead does not yet provide an implementable completion callback through the current wrapper. Do not patch packet bits manually until a PS4-specific authoritative definition or a known-good retail sample confirms the exact packet encoding and event ordering.
+
+Additional research reference: https://ps4-opengnm.github.io/opengnm/reference/types/ (GnmEventType) and https://ps4-opengnm.github.io/opengnm/reference/drawcommandbuffer/#scegnmdrawcmdeventwriteeop.
