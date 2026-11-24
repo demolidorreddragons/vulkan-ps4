@@ -10,6 +10,7 @@ import sys
 root = Path(sys.argv[1])
 queue = (root / "src/vk_ps4_queue.c").read_text(encoding="utf-8")
 sync = (root / "src/vk_ps4_sync.c").read_text(encoding="utf-8")
+buffer = (root / "src/vk_ps4_buffer.c").read_text(encoding="utf-8")
 
 
 def require(condition, message):
@@ -130,4 +131,11 @@ require(
     "QueueWaitIdle uses a bounded completion poll and reports missing GPU progress",
 )
 
-print("Queue synchronization source contract checks passed.")
+device_address = function_body(buffer, "vk_ps4_GetBufferDeviceAddress(", "")
+require(
+    "buf->memory->gnm_mem.mapped" in device_address
+    and "buf->memory->gnm_mem.directmemory" not in device_address,
+    "buffer device address uses the same mapped VA as GNM buffer descriptors",
+)
+
+print("Queue synchronization and buffer-address source contract checks passed.")
