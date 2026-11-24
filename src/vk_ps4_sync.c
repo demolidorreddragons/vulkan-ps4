@@ -99,7 +99,7 @@ vk_ps4_CreateFence(VkDevice device, const VkFenceCreateInfo *pCreateInfo,
         return label_result;
     }
     fence->label = (volatile uint32_t *)fence->label_mem.mapped;
-    *fence->label = fence->signal_value;
+    *fence->label = fence->signaled ? fence->signal_value : 0u;
 
     *pFence = (VkFence)fence;
     return VK_SUCCESS;
