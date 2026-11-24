@@ -271,11 +271,19 @@ vk_ps4_DeviceWaitIdle(VkDevice device) {
         return VK_ERROR_INITIALIZATION_FAILED;
     }
     VkPs4Device *dev = (VkPs4Device *)device;
-    /* DeviceWaitIdle waits for all queues to be idle.  Since we have a
-     * single queue family, this is equivalent to QueueWaitIdle on the
-     * first queue.  Use the same EOP-poll approach. */
-    if (dev->queue_count > 0 && dev->queues[0]) {
-        return vk_ps4_QueueWaitIdle((VkQueue)dev->queues[0]);
+
+    /* Every queue handle represents a separately created queue, including
+     * additional queues from the same family.  Waiting only on queues[0]
+     * can return while work remains pending on another queue.  Drain each
+     * queue in sequence and propagate the first failure. */
+    for (uint32_t i = 0; i < dev->queue_count; i++) {
+        if (!dev->queues[i]) {
+            continue;
+        }
+        VkResult result = vk_ps4_QueueWaitIdle((VkQueue)dev->queues[i]);
+        if (result != VK_SUCCESS) {
+            return result;
+        }
     }
     return VK_SUCCESS;
 }
