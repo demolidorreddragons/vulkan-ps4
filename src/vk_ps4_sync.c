@@ -202,7 +202,7 @@ vk_ps4_GetFenceStatus(VkDevice device, VkFence fence) {
     if (!fence) return VK_ERROR_INITIALIZATION_FAILED;
     VkPs4Fence *f = (VkPs4Fence *)fence;
     bool done = f->signaled;
-    if (f->label) {
+    if (!done && f->label) {
         done = (*f->label == f->signal_value);
     }
     return done ? VK_SUCCESS : VK_NOT_READY;
