@@ -94,6 +94,13 @@ require(
 )
 
 require(
+    "if (!sem->signaled)" in submit
+    and "unsignaled semaphore has no GPU wait path" in submit
+    and submit.index("if (!sem->signaled)") < submit.index("sem->signaled = false;"),
+    "host fallback rejects unsignaled waits before consuming semaphore state",
+)
+
+require(
     "#ifndef VK_USE_PLATFORM_PS4" in submit,
     "host-only no-GPU fallback remains compile-time isolated",
 )
