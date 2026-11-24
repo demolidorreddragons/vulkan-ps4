@@ -98,3 +98,17 @@ No additional synchronization code was changed in this follow-up. The repository
 - `GetFenceStatus` now accepts the CPU-side signaled flag before consulting the GPU label, matching the existing `WaitForFences` predicate.
 - Previously it overwrote a true CPU-side state with a stale GPU label comparison, which could report a fence as not ready after CPU-side signaling paths.
 - This consistency fix does not qualify the GPU label memory or EOP completion mechanism.
+
+
+## API evidence: `sceGnmSubmitDone` is not a proven retirement fence
+
+- The OpenOrbis public `GnmDriver.h` declaration documents `sceGnmSubmitDone()` as: "Tell the driver that all command buffers were submitted for this frame." It does not document GPU completion, command-buffer retirement, or a wait guarantee. Source: https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/blob/0a1aaf9dd4a92695538bdeb09fb056d06dd11725/include/orbis/GnmDriver.h
+- Therefore, the existing `sceGnmSubmitDone()` call after the one-shot device-init command buffer cannot be repurposed as evidence that a submitted epilogue buffer is no longer being read by the GPU.
+- shadPS4 and GPCS4 contain emulator-side implementations of GNM submission, but emulator scheduling/`WaitGpuIdle` behavior is not a retail PS4 firmware 14.02 contract. Those implementations are not used as proof of hardware retirement here.
+- The queue source comments were corrected to stop describing QueueSubmit as serialized or the submit path as synchronously retired. The shared epilogue buffer remains a hard blocker; no speculative lock, SubmitDone-as-fence, or guessed firmware wait API was added.
+
+### Evidence references
+
+- OpenOrbis header (public declaration/comment): https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/blob/0a1aaf9dd4a92695538bdeb09fb056d06dd11725/include/orbis/GnmDriver.h
+- shadPS4 emulation implementation (reference only, not hardware ABI proof): https://github.com/shadps4-emu/shadPS4/blob/5c3b6910b99ea4e4d019533490137fe80e400306/src/core/libraries/gnmdriver/gnmdriver.cpp
+- GPCS4 emulation wrapper (reference only): https://github.com/Inori/GPCS4/blob/88480de36f983c66f7dd2c5951fead1a740d47a5/GPCS4/SceModules/SceGnmDriver/sce_gnm_submit.cpp
