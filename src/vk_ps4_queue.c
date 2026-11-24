@@ -74,10 +74,9 @@ vk_ps4_QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSub
          * This makes the GPU block until each wait semaphore's label matches
          * its signal_value, providing real GPU-side synchronization.
          *
-         * On host builds (no epilogue buffer or no-op submit), we fall back
-         * to the CPU-side signaled flag.  Since QueueSubmit is serialized,
-         * the signaling submit has already completed by the time we get
-         * here, so the flag is authoritative on host. */
+         * On host builds (no epilogue buffer or no-op submit), only an
+         * already-signaled CPU-side semaphore can be consumed. An unsignaled
+         * wait cannot block asynchronously here and therefore fails closed. */
         for (uint32_t w = 0; w < submit->waitSemaphoreCount; w++) {
             VkPs4Semaphore *sem = (VkPs4Semaphore *)submit->pWaitSemaphores[w];
             if (!sem) continue;
@@ -103,7 +102,11 @@ vk_ps4_QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSub
             } else {
                 /* Host fallback: check CPU-side signaled flag. */
                 if (!sem->signaled) {
-                    /* Serialized submit — proceed anyway. */
+                    /* No GPU wait packet exists in this build, so an
+                     * unsignaled semaphore cannot be consumed safely.
+                     * Fail closed rather than silently executing work. */
+                    vk_ps4_log("QueueSubmit: unsignaled semaphore has no GPU wait path");
+                    return VK_ERROR_DEVICE_LOST;
                 }
             }
             /* Reset the semaphore after waiting (binary semaphore). */
