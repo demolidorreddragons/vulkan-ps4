@@ -158,8 +158,8 @@ vk_ps4_QueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSub
                 );
                 if (result != 0) {
                     /* Failed EOP submission is not a signal.  Do not write
-                     * the completion label from the CPU or consume the
-                     * semaphore's next signal value. */
+                     * the completion label from the CPU.  The generation
+                     * remains advanced so the previous label cannot match. */
                     vk_ps4_log("QueueSubmit: semaphore EOP submit FAILED: %d",
                                result);
                     return VK_ERROR_DEVICE_LOST;
