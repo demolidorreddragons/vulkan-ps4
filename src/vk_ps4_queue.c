@@ -7,11 +7,11 @@
  * submitted so the GPU writes a signal_value to each sync object's label
  * when all preceding work completes.  WaitForFences polls those labels.
  *
- * Wait semaphores emit a WAIT_REG_MEM packet into the epilogue command
- * buffer and submit it before the user's command buffers, so the GPU blocks
- * until the signaling submit's EOP write completes.  On host builds where
- * sceGnmSubmitCommandBuffers is a no-op, the CPU-side signaled flag is the
- * fallback (safe because QueueSubmit is serialized).
+ * Wait semaphores emit a WAIT_REG_MEM packet into the shared epilogue command
+ * buffer and submit it before the user's command buffers. This path is not
+ * hardware-qualified: the buffer is reused without a proven GPU-retirement
+ * point, and the queue implementation has no established cross-queue lock.
+ * The host CPU fallback does not establish Orbis synchronization semantics.
  */
 
 #include "vk_ps4_internal.h"
@@ -246,18 +246,15 @@ vk_ps4_QueueWaitIdle(VkQueue queue) {
         return VK_ERROR_INITIALIZATION_FAILED;
     }
     VkPs4Queue *q = (VkPs4Queue *)queue;
-    /* With the EOP fence mechanism, QueueWaitIdle should wait for the last
-     * submitted fence.  Since QueueSubmit is serialized and the GPU processes
-     * command buffers in order, the last EOP write completing means all
-     * prior work is done.  For now, we rely on the synchronous submit model
-     * — sceGnmSubmitCommandBuffers queues work but the EOP label is polled
-     * by WaitForFences.  QueueWaitIdle has no fence to poll, so we submit a
-     * no-op EOP write and poll it. */
+    /* Intended drain mechanism: append an EOP marker and poll its label.
+     * This remains unqualified because the marker uses the same shared
+     * epilogue storage as QueueSubmit and no in-flight storage retirement or
+     * cross-queue serialization contract has been established. */
     VkPs4Device *dev = q->device;
     if (dev && dev->gnm_epilogue_cmd) {
-        /* Use the last dword of the epilogue buffer as the idle label.
-         * The EOP packet (~6 dwords) is written at the start of the buffer,
-         * so it won't overlap the label at the end. */
+        /* The final dword is reserved as the marker label. This avoids a
+         * byte-range overlap with the packet, but does not protect the shared
+         * command storage from concurrent CPU writers or in-flight GPU reads. */
         volatile uint32_t *idle_label =
             (volatile uint32_t *)((uintptr_t)dev->gnm_epilogue_cmd +
                 (dev->gnm_epilogue_cmd_dwords - 1) * sizeof(uint32_t));
