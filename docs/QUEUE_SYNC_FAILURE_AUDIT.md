@@ -151,3 +151,17 @@ The memory audit found that this backend does already contain a DirectMemory-bac
 - Do not equate the existing buffer allocation path with proof of retail firmware 14.02 GPU residency or cache coherence; no console readback test exists.
 
 This refines the earlier finding: the backend has a DirectMemory primitive for Vulkan buffer allocations, but its descriptor-array storage does not use it.
+
+
+## Follow-up: DirectMemory address and cache audit
+
+A further source-level cross-check found a potentially more fundamental address-space inconsistency in the existing buffer path:
+
+- OpenGNM documents `GnmDirectMemory.mapped` as the CPU-mapped pointer and `GnmDirectMemory.directmemory` as the GPU-side direct-memory address (see the public struct/API reference).
+- `vk_ps4_BindBufferMemory` currently passes `mem->gnm_mem.mapped + offset` to `sceGnmBufSetBaseAddress`, which configures a GPU buffer descriptor.
+- `vk_ps4_GetBufferDeviceAddress`, in contrast, returns `mem->gnm_mem.directmemory + offset`.
+- These two paths therefore use different address fields for what should identify the same bound buffer. Unless the Orbis implementation explicitly guarantees these values are numerically interchangeable (not established by the source/docs reviewed), this is a correctness blocker. The buffer binding path should be reconciled against the documented GPU address semantics before relying on it for compute.
+- `vk_ps4_FlushMappedMemoryRanges` and `vk_ps4_InvalidateMappedMemoryRanges` are unconditional no-ops. Their comments assert Onion coherence / Garlic visibility, but this repository does not provide firmware-14.02 evidence or a hardware readback test establishing those cache guarantees.
+- This is a source audit, not a claim that the mismatch has been reproduced on hardware. No speculative pointer cast or cache operation was added.
+
+Reference: OpenGNM DirectMemory struct/API documentation: https://ps4-opengnm.github.io/opengnm/reference/helpers/
