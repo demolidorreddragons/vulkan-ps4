@@ -138,3 +138,16 @@ Evidence:
 - Pinned OpenOrbis usage enum previously audited: `PTR_INDIRECTRESOURCETABLE=0x1c`, `PTR_INDIRECTINTERNALRESOURCETABLE=0x1d`, `PTR_INDIRECTRWRESOURCETABLE=0x1e`.
 
 Status: descriptor-table GPU residency and the Gate A 0x1c binding path remain blocked. Do not claim compute descriptor binding or hardware dispatch readiness.
+
+
+## Follow-up: refine descriptor memory finding
+
+The memory audit found that this backend does already contain a DirectMemory-backed Vulkan allocation path; the blocker is narrower than "there is no GPU memory mechanism":
+
+- `vk_ps4_AllocateMemory` calls `sceGnmDirectMemoryAllocate` for the advertised Onion/Garlic memory types and retains a `GnmDirectMemory` handle.
+- `vk_ps4_BindBufferMemory` derives a buffer descriptor base from `mem->gnm_mem.mapped + offset`. This establishes the intended GPU-visible path for Vulkan buffer resources within this backend's assumptions, although FW 14.02 behavior/coherency remains unqualified.
+- Descriptor payload arrays are separate allocations: `alloc_binding_resources` uses `vk_ps4_alloc_zero` (the host allocator) for `GnmBuffer`, `GnmTexture`, and `GnmSampler` arrays. They are passed directly to `sceGnmDrawCmdSetPointerUserData`.
+- Therefore a plausible engineering direction is to back descriptor payload arrays with dedicated `GnmDirectMemory` allocations and point user-data at their mapped GPU-visible addresses. This is not implemented: it still requires validating the correct memory type, alignment, lifetime through GPU consumption, cache behavior, and the exact table representation expected by each input-usage type. In particular, it does not by itself solve the missing indirect-table (0x1c/0x1d/0x1e) semantics.
+- Do not equate the existing buffer allocation path with proof of retail firmware 14.02 GPU residency or cache coherence; no console readback test exists.
+
+This refines the earlier finding: the backend has a DirectMemory primitive for Vulkan buffer allocations, but its descriptor-array storage does not use it.
